@@ -1,0 +1,6 @@
+chroma_db/
+sample_images/
+kitti_dataset/
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,7 @@
+torch
+transformers
+chromadb
+Pillow
+gradio
+umap-learn
+plotly
