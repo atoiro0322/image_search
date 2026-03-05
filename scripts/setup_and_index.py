@@ -3,24 +3,19 @@ CLIP + ChromaDB によるセマンティック画像検索
 Step 1: サンプル画像をダウンロードしてベクトルDBに登録する
 """
 
-import os
 import json
+import sys
 import urllib.request
 from pathlib import Path
 
-import chromadb
-import torch
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from PIL import Image
-from transformers import CLIPProcessor, CLIPModel
 
-# ---- 設定 ----
-DB_PATH = "./chroma_db"
-COLLECTION_NAME = "images"
-IMAGE_DIR = "./sample_images"
-DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
-print(f"Using device: {DEVICE}")
+from src.config import IMAGE_DIR
+from src.embedder import CLIPEmbedder
+from src.store import ImageStore
 
-# ---- サンプル画像 (Unsplash public domain) ----
 SAMPLE_IMAGES = [
     {
         "id": "img_001",
@@ -76,11 +71,11 @@ SAMPLE_IMAGES = [
 
 
 def download_images():
-    Path(IMAGE_DIR).mkdir(exist_ok=True)
+    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     print("サンプル画像をダウンロード中...")
     for item in SAMPLE_IMAGES:
-        path = f"{IMAGE_DIR}/{item['id']}.jpg"
-        if not os.path.exists(path):
+        path = IMAGE_DIR / f"{item['id']}.jpg"
+        if not path.exists():
             try:
                 urllib.request.urlretrieve(item["url"], path)
                 print(f"  ✓ {item['id']}")
@@ -92,50 +87,33 @@ def download_images():
 
 def build_index():
     print("\nCLIPモデルをロード中...")
-    model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(DEVICE)
-    processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-    model.eval()
+    embedder = CLIPEmbedder()
 
     print("ChromaDBを初期化中...")
-    client = chromadb.PersistentClient(path=DB_PATH)
-    # 既存コレクションを削除して再作成
-    try:
-        client.delete_collection(COLLECTION_NAME)
-    except Exception:
-        pass
-    collection = client.create_collection(
-        name=COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"}
-    )
+    store = ImageStore(reset=True)
 
     print("\n画像をベクトル化してインデックス登録中...")
     ids, embeddings, metadatas = [], [], []
 
     for item in SAMPLE_IMAGES:
-        path = f"{IMAGE_DIR}/{item['id']}.jpg"
-        if not os.path.exists(path):
+        path = IMAGE_DIR / f"{item['id']}.jpg"
+        if not path.exists():
             print(f"  スキップ (ファイルなし): {item['id']}")
             continue
         try:
             image = Image.open(path).convert("RGB")
-            inputs = processor(images=image, return_tensors="pt").to(DEVICE)
-            with torch.no_grad():
-                emb = model.get_image_features(**inputs).pooler_output
-                emb = emb / emb.norm(dim=-1, keepdim=True)  # L2正規化
-                emb = emb.cpu().float().numpy()[0].tolist()
-
+            emb = embedder.get_image_embedding(image)
             ids.append(item["id"])
             embeddings.append(emb)
-            metadatas.append({"caption": item["caption"], "path": path})
+            metadatas.append({"caption": item["caption"], "path": str(path)})
             print(f"  ✓ {item['id']}: {item['caption'][:40]}...")
         except Exception as e:
             print(f"  ✗ {item['id']}: {e}")
 
-    collection.add(ids=ids, embeddings=embeddings, metadatas=metadatas)
+    store.add(ids=ids, embeddings=embeddings, metadatas=metadatas)
     print(f"\n✅ {len(ids)} 件の画像をインデックスに登録しました")
 
-    # メタデータ保存
-    with open(f"{IMAGE_DIR}/metadata.json", "w") as f:
+    with open(IMAGE_DIR / "metadata.json", "w") as f:
         json.dump(SAMPLE_IMAGES, f, ensure_ascii=False, indent=2)
     print(f"メタデータを {IMAGE_DIR}/metadata.json に保存しました")
 

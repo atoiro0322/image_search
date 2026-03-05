@@ -4,24 +4,17 @@ Step 3: Gradio WebUI版
 """
 
 import gradio as gr
-import chromadb
-import torch
 from PIL import Image
-from transformers import CLIPProcessor, CLIPModel
 
-DB_PATH = "./chroma_db"
-COLLECTION_NAME = "images"
-DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
+from src.config import DEVICE
+from src.embedder import CLIPEmbedder
+from src.store import ImageStore
 
 print(f"Using device: {DEVICE}")
 print("CLIPモデルをロード中...")
-model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(DEVICE)
-processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-model.eval()
+embedder = CLIPEmbedder()
+store = ImageStore()
 print("モデルロード完了")
-
-client = chromadb.PersistentClient(path=DB_PATH)
-collection = client.get_collection(COLLECTION_NAME)
 
 
 def text_search(query: str, top_k: int = 4):
@@ -29,17 +22,8 @@ def text_search(query: str, top_k: int = 4):
     if not query.strip():
         return []
 
-    inputs = processor(text=[query], return_tensors="pt", padding=True).to(DEVICE)
-    with torch.no_grad():
-        emb = model.get_text_features(**inputs).pooler_output
-        emb = emb / emb.norm(dim=-1, keepdim=True)
-        emb = emb.cpu().float().numpy()[0].tolist()
-
-    results = collection.query(
-        query_embeddings=[emb],
-        n_results=top_k,
-        include=["metadatas", "distances"]
-    )
+    emb = embedder.get_text_embedding(query)
+    results = store.query(emb, n_results=top_k)
 
     output = []
     for meta, dist in zip(results["metadatas"][0], results["distances"][0]):
@@ -56,17 +40,8 @@ def image_search(query_image, top_k: int = 4):
         return []
 
     image = Image.fromarray(query_image).convert("RGB")
-    inputs = processor(images=image, return_tensors="pt").to(DEVICE)
-    with torch.no_grad():
-        emb = model.get_image_features(**inputs).pooler_output
-        emb = emb / emb.norm(dim=-1, keepdim=True)
-        emb = emb.cpu().float().numpy()[0].tolist()
-
-    results = collection.query(
-        query_embeddings=[emb],
-        n_results=top_k,
-        include=["metadatas", "distances"]
-    )
+    emb = embedder.get_image_embedding(image)
+    results = store.query(emb, n_results=top_k)
 
     output = []
     for meta, dist in zip(results["metadatas"][0], results["distances"][0]):
@@ -124,16 +99,8 @@ with gr.Blocks(
                 height=320,
                 show_label=True
             )
-            search_btn.click(
-                fn=text_search,
-                inputs=[text_input, top_k_text],
-                outputs=text_results
-            )
-            text_input.submit(
-                fn=text_search,
-                inputs=[text_input, top_k_text],
-                outputs=text_results
-            )
+            search_btn.click(fn=text_search, inputs=[text_input, top_k_text], outputs=text_results)
+            text_input.submit(fn=text_search, inputs=[text_input, top_k_text], outputs=text_results)
 
         # --- 画像検索タブ ---
         with gr.TabItem("🖼️ 画像で検索"):
@@ -150,11 +117,7 @@ with gr.Blocks(
                 height=320,
                 show_label=True
             )
-            img_search_btn.click(
-                fn=image_search,
-                inputs=[image_input, top_k_img],
-                outputs=img_results
-            )
+            img_search_btn.click(fn=image_search, inputs=[image_input, top_k_img], outputs=img_results)
 
     gr.Markdown("""
     ---

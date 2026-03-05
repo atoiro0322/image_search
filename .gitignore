@@ -1,7 +1,7 @@
-chroma_db/
-sample_images/
-kitti_dataset/
+data/
 claude_data/
+kitti_dataset/
+embedding_map.html
 __pycache__/
 *.pyc
 .DS_Store
