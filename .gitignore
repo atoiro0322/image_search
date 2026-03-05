@@ -1,6 +1,7 @@
 chroma_db/
 sample_images/
 kitti_dataset/
+claude_data/
 __pycache__/
 *.pyc
 .DS_Store
