@@ -83,12 +83,12 @@ with gr.Blocks(
                     gr.Markdown("**クエリ例:**")
                     gr.Examples(
                         examples=[
-                            ["a dog running outside"],
-                            ["city lights at night"],
-                            ["mountain with snow"],
-                            ["person using computer"],
-                            ["coffee and relaxation"],
-                            ["colorful flowers in nature"],
+                            ["a car driving on the road"],
+                            ["pedestrian walking on sidewalk"],
+                            ["intersection with traffic"],
+                            ["highway with multiple lanes"],
+                            ["parked cars on street"],
+                            ["urban street scene"],
                         ],
                         inputs=text_input
                     )
