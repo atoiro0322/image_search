@@ -26,28 +26,40 @@ BATCH_SIZE = 64  # ChromaDB への一括登録サイズ
 
 
 def iter_images(kitti_dir: Path, split: str):
-    """展開済みディレクトリから (img_id, image_path_str, PIL.Image) を yield"""
+    """展開済みディレクトリから (paths, generator) を返す"""
     image_dir = kitti_dir / split / "image_2"
     if not image_dir.exists():
         raise FileNotFoundError(f"ディレクトリが見つかりません: {image_dir}")
     paths = sorted(image_dir.glob("*.png"))
-    for path in paths:
-        yield f"{split}_{path.stem}", str(path), Image.open(path).convert("RGB")
+
+    def _gen():
+        for path in paths:
+            yield f"{split}_{path.stem}", str(path), Image.open(path).convert("RGB")
+
+    return paths, _gen()
+
+
+def _progress_bar(count: int, total: int, width: int = 35) -> str:
+    pct = count / total
+    filled = int(width * pct)
+    bar = "█" * filled + "░" * (width - filled)
+    return f"\r[{bar}] {pct:5.1%}  ({count}/{total})"
 
 
 # ---- メイン処理 ----
 
-def index_kitti(source, split: str, max_images: int | None):
+def index_kitti(paths, source, split: str, max_images: int | None):
     print("CLIPモデルをロード中...")
     embedder = CLIPEmbedder()
 
     print("ChromaDBを初期化中...")
     store = ImageStore(reset=True)
 
+    total = min(len(paths), max_images) if max_images else len(paths)
     ids, embeddings, metadatas = [], [], []
     count = 0
 
-    print(f"\n画像をベクトル化してインデックス登録中 (split={split})...")
+    print(f"\n画像をベクトル化してインデックス登録中 (split={split}, 計{total}枚)")
 
     for img_id, path_str, image in source:
         if max_images and count >= max_images:
@@ -62,15 +74,15 @@ def index_kitti(source, split: str, max_images: int | None):
                 "split": split,
             })
             count += 1
+            print(_progress_bar(count, total), end="", flush=True)
 
             # バッチ登録
             if len(ids) >= BATCH_SIZE:
                 store.add(ids=ids, embeddings=embeddings, metadatas=metadatas)
-                print(f"  [{count}] 登録済み...")
                 ids, embeddings, metadatas = [], [], []
 
         except Exception as e:
-            print(f"  ✗ {img_id}: {e}")
+            print(f"\n  ✗ {img_id}: {e}")
 
     # 残りを登録
     if ids:
@@ -83,8 +95,8 @@ def index_kitti(source, split: str, max_images: int | None):
 def main():
     if KITTI_DIR_PATH is None:
         raise ValueError("src/config.py の KITTI_DIR_PATH を設定してください")
-    source = iter_images(KITTI_DIR_PATH, KITTI_SPLIT)
-    index_kitti(source, KITTI_SPLIT, KITTI_MAX_IMAGES)
+    paths, source = iter_images(KITTI_DIR_PATH, KITTI_SPLIT)
+    index_kitti(paths, source, KITTI_SPLIT, KITTI_MAX_IMAGES)
 
 
 if __name__ == "__main__":

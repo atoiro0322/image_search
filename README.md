@@ -6,6 +6,14 @@ Pre-compute image embeddings offline once, then search at query time using only 
 
 ---
 
+## Screenshots
+
+![Parked cars search](assets/image-search_parked-cars.png)
+
+![Urban street search](assets/image-search_urban-street.png)
+
+---
+
 ## Architecture
 
 ```
