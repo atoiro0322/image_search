@@ -96,6 +96,16 @@ python scripts/analyze.py
 # → embedding_map.html を生成してブラウザで表示
 ```
 
+Runs UMAP to compress all image embeddings to 2D and renders an interactive scatter plot (`embedding_map.html`). Each dot represents one image frame. Hover over a point to see the scene name and UMAP coordinates; click a point to display the full image below the chart.
+
+Serve the file locally to view it:
+
+```bash
+cd /path/to/image-search-project
+python -m http.server 8080
+# → http://localhost:8080/embedding_map.html
+```
+
 ---
 
 ## Project Structure
