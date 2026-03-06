@@ -12,6 +12,8 @@ Pre-compute image embeddings offline once, then search at query time using only 
 
 ![Urban street search](assets/image-search_urban-street.png)
 
+![UMAP scatter plot](assets/scatter-plot_umap.png)
+
 ---
 
 ## Architecture
