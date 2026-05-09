@@ -1,8 +1,8 @@
-data/
-claude_data/
-kitti_dataset/
+data
+db/
 embedding_map.html
 __pycache__/
 .pytest_cache/
 *.pyc
 .DS_Store
+.venv/
