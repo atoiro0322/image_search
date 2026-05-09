@@ -1,12 +1,12 @@
-# clip-image-search
+# セマンティック画像検索
 
-Semantic image search over the KITTI driving dataset using CLIP and ChromaDB.
+KITTIドライビングデータセットをCLIPまたはSigLIPで埋め込み、ChromaDBで検索するシステムです。
 
-Pre-compute image embeddings offline once, then search at query time using only a fast text or image embedding — making semantic search practical without a GPU server.
+画像の埋め込みをオフラインで事前計算しておくことで、クエリ時はテキストや画像の埋め込みだけで高速にセマンティック検索が行えます。GPUサーバー不要。
 
 ---
 
-## Screenshots
+## スクリーンショット
 
 ![Parked cars search](assets/image-search_parked-cars.png)
 
@@ -16,91 +16,94 @@ Pre-compute image embeddings offline once, then search at query time using only 
 
 ---
 
-## Architecture
+## アーキテクチャ
 
 ```
-[KITTI dataset (training/image_2/*.png)]
+[KITTI データセット (training/image_2/*.png)]
        │
-       ▼  run once (scripts/index_kitti.py)
-  CLIP Embedding (512-dim)
+       ▼  事前実行（scripts/index_kitti.py --model <model>）
+  CLIP (512次元) または SigLIP (768次元) 埋め込み
        │
        ▼
-  ChromaDB  ←  persisted locally (data/chroma_db/)
+  ChromaDB  ←  ローカルに永続化（db/）
+             ※ モデルごとに別コレクション（images_clip / images_siglip）
        │
-       ▼  at query time (app.py / search.py)
-  Text / Image Query → CLIP → Cosine Similarity Search → Results
+       ▼  クエリ時（app.py / search.py）
+  テキスト / 画像クエリ → 埋め込み → コサイン類似度検索 → 結果
 ```
 
 ---
 
-## Features
+## 機能
 
-- **Text-to-image search** — describe a driving scene in natural language and retrieve visually similar images
-- **Image-to-image search** — upload an image and find similar frames from the index
-- **UMAP scatter plot** — visualise the distribution of image embeddings to identify redundant or underrepresented scenes
-- **Apple Silicon support** — automatically uses MPS backend when available
-- **Gradio web UI** — browser-based interface with gallery view
+- **テキスト → 画像検索** — 自然言語でシーンを説明し、視覚的に類似した画像を取得
+- **画像 → 画像検索** — 画像をアップロードし、似たフレームを検索
+- **モデル切り替え** — GradioのUIまたはCLIで CLIP / SigLIP を切り替え可能
+- **UMAP可視化** — 埋め込みの分布を2次元散布図でインタラクティブに表示
+- **Apple Silicon対応** — MPSバックエンドを自動検出
+- **Gradio WebUI** — ギャラリー表示・ページネーション付きのブラウザ操作
 
 ---
 
-## Quickstart
+## クイックスタート
 
-### 1. Install dependencies
+### 1. 依存関係のインストール
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Place the KITTI dataset
+### 2. KITTIデータセットの配置
 
-Extract `data_object_image_2.zip` so that the directory structure is:
+`data_object_image_2.zip` を展開し、以下のディレクトリ構成にしてください:
 
 ```
-kitti_dataset/
-└── training/
+data/
+├── training/
+│   └── image_2/
+│       ├── 000000.png
+│       ├── 000001.png
+│       └── ...
+└── testing/
     └── image_2/
-        ├── 000000.png
-        ├── 000001.png
         └── ...
 ```
 
-### 3. Configure paths
-
-Edit `src/config.py`:
-
-```python
-KITTI_DIR_PATH   = BASE_DIR / "kitti_dataset"  # path to extracted dataset
-KITTI_SPLIT      = "training"                  # "training" or "testing"
-KITTI_MAX_IMAGES = None                        # None = all, int = limit (for testing)
-```
-
-### 4. Build the vector index (run once)
+### 3. インデックスの作成（一度だけ実行）
 
 ```bash
+# CLIP（デフォルト）でインデックス作成
 python scripts/index_kitti.py
+
+# SigLIPでインデックス作成（別途実行が必要）
+python scripts/index_kitti.py --model siglip
 ```
 
-### 5. Search
+モデルごとに別のChromaDBコレクション（`images_clip` / `images_siglip`）に保存されます。
+
+### 4. 検索
 
 ```bash
 # Web UI → http://localhost:7860
 python app.py
 
-# CLI
+# CLI（CLIPで検索）
 python search.py "a car driving on the road"
-python search.py "pedestrian walking on sidewalk"
+
+# CLI（SigLIPで検索）
+python search.py --model siglip "pedestrian walking on sidewalk"
 ```
 
-### 6. Visualise embedding distribution (optional)
+Web UIでは上部のラジオボタンでモデルを切り替えられます。対象モデルのインデックスが未作成の場合は警告が表示されます。
+
+### 5. 埋め込み分布の可視化（オプション）
 
 ```bash
 python scripts/analyze.py
 # → embedding_map.html を生成してブラウザで表示
 ```
 
-Runs UMAP to compress all image embeddings to 2D and renders an interactive scatter plot (`embedding_map.html`). Each dot represents one image frame. Hover over a point to see the scene name and UMAP coordinates; click a point to display the full image below the chart.
-
-Serve the file locally to view it:
+UMAPで全画像埋め込みを2次元に圧縮し、インタラクティブな散布図（`embedding_map.html`）を生成します。各点が1フレーム。ホバーでシーン名、クリックで画像を表示。
 
 ```bash
 cd /path/to/image-search-project
@@ -110,65 +113,69 @@ python -m http.server 8080
 
 ---
 
-## Project Structure
+## プロジェクト構成
 
 ```
 image-search-project/
-├── src/                        # Core package
-│   ├── config.py               # Paths and settings (edit here)
-│   ├── embedder.py             # CLIP wrapper
-│   └── store.py                # ChromaDB wrapper
+├── src/                        # コアパッケージ
+│   ├── config.py               # パス・設定（ここを編集）
+│   ├── embedder.py             # BaseEmbedder 抽象クラス + get_embedder() ファクトリー
+│   ├── clip_embedder.py        # CLIPEmbedder（512次元）
+│   ├── siglip_embedder.py      # SiglipEmbedder（768次元）
+│   └── store.py                # ChromaDB ラッパー
 ├── scripts/
-│   ├── index_kitti.py          # Build vector index from KITTI dataset
-│   └── analyze.py              # UMAP visualisation
+│   ├── index_kitti.py          # インデックス作成（--model オプションあり）
+│   └── analyze.py              # UMAP可視化
 ├── tests/
-│   ├── test_embedder.py
+│   ├── test_embedder.py        # CLIP・SigLIPのユニットテスト
 │   └── test_store.py
-├── app.py                      # Gradio web UI
-├── search.py                   # CLI search
-├── kitti_dataset/              # Place extracted KITTI data here (gitignored)
-├── data/                       # Generated index (gitignored)
-│   └── chroma_db/
+├── app.py                      # Gradio WebUI
+├── search.py                   # CLI検索（--model オプションあり）
+├── README.md                   # このファイル（日本語）
+├── README_en.md                # 英語版README
+├── data/                       # KITTIデータセット（gitignore対象）
+├── db/                         # ChromaDB（gitignore対象）
 └── requirements.txt
 ```
 
 ---
 
-## Query Examples
+## モデル比較
 
-| Query | Expected results |
-|-------|-----------------|
-| `a car driving on the road` | Moving vehicles on highway/street |
-| `pedestrian walking on sidewalk` | Scenes with people on foot |
-| `intersection with traffic` | Complex road junctions |
-| `highway with multiple lanes` | Wide road scenes |
-| `parked cars on street` | Stationary vehicles |
-| `urban street scene` | City driving environments |
+| モデル | 埋め込み次元 | モデルサイズ | 特徴 |
+|--------|------------|------------|------|
+| CLIP (`openai/clip-vit-base-patch32`) | 512次元 | ~150MB | 軽量・高速。デフォルト |
+| SigLIP (`google/siglip-base-patch16-224`) | 768次元 | ~400MB | シグモイド損失による学習でCLIPより精度向上。要`sentencepiece` |
 
 ---
 
-## Requirements
+## クエリ例
+
+| クエリ | 期待される結果 |
+|-------|--------------|
+| `a car driving on the road` | 走行中の車両 |
+| `pedestrian walking on sidewalk` | 歩行者のシーン |
+| `intersection with traffic` | 複雑な交差点 |
+| `highway with multiple lanes` | 広い道路 |
+| `parked cars on street` | 路上駐車 |
+| `urban street scene` | 市街地走行 |
+
+---
+
+## 動作要件
 
 - Python 3.10+
-- KITTI object detection dataset (`data_object_image_2.zip`)
-- Apple Silicon recommended (MPS acceleration), but CPU-only also works
+- KITTIオブジェクト検出データセット（`data_object_image_2.zip`）
+- Apple Silicon推奨（MPSアクセラレーション）。CPU-onlyでも動作可
 
 ---
 
-## Background
+## 参考リンク
 
-A common challenge in autonomous driving dataset curation is that collections tend to be heavily skewed — similar scenes (e.g. straight highway driving) are over-represented while rare or diverse examples (intersections, pedestrians, adverse weather) are underrepresented. This project uses CLIP embeddings and vector search as a foundation for:
-
-1. **Semantic search** — find frames matching a natural language description
-2. **Distribution visualisation** — identify which scene types are over- or under-represented
-3. *(future)* **Deduplication** — remove near-duplicate frames to improve dataset diversity
-
----
-
-## References
-
-- [CLIP model on HuggingFace](https://huggingface.co/openai/clip-vit-base-patch32)
+- [CLIP on HuggingFace](https://huggingface.co/openai/clip-vit-base-patch32)
+- [SigLIP on HuggingFace](https://huggingface.co/google/siglip-base-patch16-224)
 - [KITTI Vision Benchmark Suite](https://www.cvlibs.net/datasets/kitti/)
 - [ChromaDB documentation](https://docs.trychroma.com/)
 - [UMAP documentation](https://umap-learn.readthedocs.io/)
-- [Plotly Scatter](https://plotly.com/python/line-and-scatter/)
+
+英語版: [README_en.md](README_en.md)
