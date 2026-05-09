@@ -1,19 +1,18 @@
 """
-CLIP + ChromaDB によるセマンティック画像検索
-Step 3: Gradio WebUI版
+セマンティック画像検索 — Gradio WebUI
 """
 
 import gradio as gr
 from PIL import Image
 
-from src.config import DEVICE
-from src.embedder import CLIPEmbedder
+from src.config import AVAILABLE_MODELS, DEFAULT_MODEL, DEVICE
+from src.embedder import get_embedder
 from src.store import ImageStore
 
 print(f"Using device: {DEVICE}")
-print("CLIPモデルをロード中...")
-embedder = CLIPEmbedder()
-store = ImageStore()
+print(f"モデルをロード中: {DEFAULT_MODEL} ...")
+embedder = get_embedder(DEFAULT_MODEL)
+store = ImageStore(model_key=DEFAULT_MODEL)
 print("モデルロード完了")
 
 
@@ -22,7 +21,10 @@ MAX_RESULTS = 100
 
 
 def _fetch_results(emb) -> list:
-    results = store.query(emb, n_results=MAX_RESULTS)
+    count = store.count()
+    if count == 0:
+        return []
+    results = store.query(emb, n_results=min(MAX_RESULTS, count))
     output = []
     for meta, dist in zip(results["metadatas"][0], results["distances"][0]):
         similarity = 1 - dist
@@ -32,9 +34,27 @@ def _fetch_results(emb) -> list:
     return output
 
 
+def switch_model(model_key: str):
+    global embedder, store
+    print(f"モデルを切り替え中: {model_key} ...")
+    embedder = get_embedder(model_key)
+    store = ImageStore(model_key=model_key)
+    count = store.count()
+    if count == 0:
+        msg = (
+            f"⚠️ '{model_key}' のインデックスが空です。"
+            f" 先に `python scripts/index_kitti.py --model {model_key}` を実行してください。"
+        )
+    else:
+        msg = f"✓ モデル: {model_key}  （インデックス: {count:,} 件）"
+    print(msg)
+    return msg
+
+
 def text_search_init(query: str):
-    """テキストクエリで画像を検索（初回）"""
     if not query.strip():
+        return [], [], 0, gr.update(visible=False)
+    if store.count() == 0:
         return [], [], 0, gr.update(visible=False)
 
     emb = embedder.get_text_embedding(query)
@@ -45,8 +65,9 @@ def text_search_init(query: str):
 
 
 def image_search_init(query_image):
-    """画像クエリで類似画像を検索（初回）"""
     if query_image is None:
+        return [], [], 0, gr.update(visible=False)
+    if store.count() == 0:
         return [], [], 0, gr.update(visible=False)
 
     image = Image.fromarray(query_image).convert("RGB")
@@ -58,7 +79,6 @@ def image_search_init(query_image):
 
 
 def load_more(all_results: list, current_count: int):
-    """次のページを追加表示"""
     new_count = current_count + PAGE_SIZE
     shown = all_results[:new_count]
     has_more = len(all_results) > new_count
@@ -79,8 +99,28 @@ with gr.Blocks(
 ) as demo:
     gr.Markdown("""
     # 🔍 セマンティック画像検索
-    **CLIP + ChromaDB** を使ったテキスト・画像検索のデモ
+    **CLIP / SigLIP + ChromaDB** を使ったテキスト・画像検索のデモ
     """, elem_classes="header")
+
+    # ---- モデル選択 ----
+    with gr.Row():
+        model_selector = gr.Radio(
+            choices=AVAILABLE_MODELS,
+            value=DEFAULT_MODEL,
+            label="埋め込みモデル",
+            info="モデルを切り替えると、そのモデルでインデックス済みの画像を検索します。",
+        )
+        model_status = gr.Textbox(
+            value=f"✓ モデル: {DEFAULT_MODEL}  （インデックス: {store.count():,} 件）",
+            label="ステータス",
+            interactive=False,
+        )
+
+    model_selector.change(
+        fn=switch_model,
+        inputs=[model_selector],
+        outputs=[model_status],
+    )
 
     with gr.Tabs():
         # --- テキスト検索タブ ---
@@ -167,7 +207,7 @@ with gr.Blocks(
 
     gr.Markdown("""
     ---
-    **仕組み**: 画像は事前にCLIPでベクトル化してChromaDBに保存。検索時はテキスト/画像クエリをベクトル化し、コサイン類似度で最近傍を返します。
+    **仕組み**: 画像は事前に各モデルでベクトル化してChromaDBに保存。検索時はテキスト/画像クエリをベクトル化し、コサイン類似度で最近傍を返します。モデルごとに別のコレクションを使用します。
     """, elem_classes="subtext")
 
 if __name__ == "__main__":
