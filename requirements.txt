@@ -1,5 +1,6 @@
 torch
 transformers
+sentencepiece
 chromadb
 Pillow
 gradio
